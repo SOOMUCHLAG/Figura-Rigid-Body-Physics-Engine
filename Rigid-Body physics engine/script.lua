@@ -1,6 +1,7 @@
 PhysicsObjects = {}
 --TO DO test these functions
-
+--Added in this commit:
+--All the functions you see here
 --transforms a quaternion into a rotation matrix
 local function quaternionToMatrix3(quaternion)
 
