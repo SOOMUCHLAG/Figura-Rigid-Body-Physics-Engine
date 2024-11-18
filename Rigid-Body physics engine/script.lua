@@ -62,7 +62,21 @@ local function addScaledQuaternion(quaternion1,rotation,scale)
 end
 
 
-
+local function findBoundingSphere(vertices)
+    local sum = vec(0,0,0)
+    for i, vertex in pairs(vertices) do
+        sum = sum + vertex
+    end
+    local center = sum/#vertices
+    local highestLength = 0
+    for i, vertex in pairs(vertices) do
+        local length = (center - vertex):length()
+        if length > highestLength then
+            highestLength = length
+        end
+    end
+    return {center=center/16,radius=highestLength/16}
+end
 
 
 function events.entity_init()
@@ -98,7 +112,7 @@ function events.tick()
 for i, object in pairs(PhysicsObjects) do
      --quaternion = rotateQuaternionByVector(quaternion,rotation)
 
-
+     sphereMarker(object.position+object.boundingSphere.center, object.boundingSphere.radius, 1)
 
     local tempmat = object.rotation:getMatrix()
 
@@ -196,6 +210,7 @@ mass = mass,
 position = position,
 velocity = velocity,
 rotation = rotation,
+dimensions = {width = cuboidWidth, height = cuboidHeight, depth = cuboidDepth},
 angularVelocity = angularVelocity,
 copy = copy,
 defVerts = defVerts,
@@ -208,6 +223,9 @@ boundingSphere = findBoundingSphere(defVerts)
     })
 
 end    
+
+
+
 
 
 function getTransformMatrix(object)
@@ -223,19 +241,21 @@ end
 
 
 function events.mouse_press(button, action, modifier)
-   if button == 0 and action == 1 then
-    local eyePos = transformWorldToLocal(player:getPos() + vec(0, player:getEyeHeight(), 0),PhysicsObjects[1].rotMat,PhysicsObjects[1].position)
-    local eyeEnd = transformWorldToLocal((player:getPos() + vec(0, player:getEyeHeight(), 0))+player:getLookDir()*10,PhysicsObjects[1].rotMat,PhysicsObjects[1].position)
-    local hitLocation = { { vec(-cuboidWidth/2, -cuboidHeight/2, -cuboidDepth/2), vec(cuboidWidth/2, cuboidHeight/2, cuboidDepth/2)} } 
-    local aabb, hitPos, side, aabbHitIndex = raycast:aabb(eyePos, eyeEnd, hitLocation)
-
-    if hitPos~= nil then
-    local worldHitPos = transformLocalToWorld(hitPos,PhysicsObjects[1].rotMat,PhysicsObjects[1].position)
-    particles:newParticle("minecraft:sonic_boom", worldHitPos)
-    pings.addForceAtBodyPoint(1,player:getLookDir()*-300,worldHitPos)
- --   drawVector(player:getLookDir()*10,nil,nil,10)
+    if button == 0 and action == 1 then
+        for i, object in pairs(PhysicsObjects) do
+            local eyePos = transformWorldToLocal(player:getPos() + vec(0, player:getEyeHeight(), 0),object.rotMat,object.position)
+            local eyeEnd = transformWorldToLocal((player:getPos() + vec(0, player:getEyeHeight(), 0))+player:getLookDir()*10,object.rotMat,object.position)
+            local hitLocation = { { vec(-object.dimensions.width/2, -object.dimensions.height/2, -object.dimensions.depth/2), vec(object.dimensions.width/2, object.dimensions.height/2, object.dimensions.depth/2)} } 
+            local aabb, hitPos, side, aabbHitIndex = raycast:aabb(eyePos, eyeEnd, hitLocation)
+            if hitPos~= nil then
+                local worldHitPos = transformLocalToWorld(hitPos,object.rotMat,object.position)
+                particles:newParticle("minecraft:sonic_boom", worldHitPos)
+                pings.addForceAtBodyPoint(i,player:getLookDir()*-3000,worldHitPos)
+                
+     --   drawVector(player:getLookDir()*10,nil,nil,10)
+            end
+        end
     end
-   end
 end
 
 
@@ -262,4 +282,45 @@ end
 
 
 
+function sphereMarker(pos, radius, quality)
+    local pos = pos or vec(0, 0, 0)
+    local r = radius or 1
+    local quality = (quality or 1)*10
 
+
+
+    -- Draw the center point
+    particles:newParticle("minecraft:end_rod", pos)
+
+    -- Draw surface points
+    for i = 1, quality do
+        for j = 1, quality do
+            local theta = (i / quality) * 2 * math.pi
+            local phi = (j / quality) * math.pi
+
+            local x = pos.x + r * math.sin(phi) * math.cos(theta)
+            local y = pos.y + r * math.sin(phi) * math.sin(theta)
+            local z = pos.z + r * math.cos(phi)
+
+            particles:newParticle("minecraft:bubble", x,y,z)
+        end
+    end
+end
+
+
+
+
+function events.key_press(key, action, modifier)
+    if key == 75 and action == 1 then 
+        local mass = 1 
+        local cuboidInertiaTensor = matrices.mat3()
+        cuboidInertiaTensor[1] = vec((1/12)*mass*(cuboidHeight*cuboidHeight+cuboidDepth*cuboidDepth),0,0)
+        cuboidInertiaTensor[2] = vec(0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidDepth*cuboidDepth),0)
+        cuboidInertiaTensor[3] = vec(0,0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidHeight*cuboidHeight))
+    
+    
+    
+    
+        createRigidBody(mass,player:getPos()+vec(0,3,0),vec(0.0,0,0),quaternions.new(0,0,0,1),vec(0,0,math.rad(0)),models.model.cuboid,cuboidInertiaTensor)
+    end    
+end
