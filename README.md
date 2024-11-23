@@ -1,4 +1,4 @@
 # Figura-Rigid-Body-Physics-Engine 
-Language fact: git means ok/sure in polish, now you prolly arent gonna find to much on this online(or in a translator) so just trust :)
+Man it took me 19 days to get first collsions working. Its goinng real slow. :despair:
 
-~~I'm going to release this as a christmas gift for the figura community :)~~ Maybe not?
+~~Fun~~ fact: Saying "elo" in polish means hi but in a very informal way. Its usually(like 99% of the time) used by (most of the time young)children
