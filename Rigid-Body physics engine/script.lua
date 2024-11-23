@@ -5,15 +5,29 @@ models.model:setParentType("WORLD")
 cuboidWidth = 1
 cuboidDepth = 1
 cuboidHeight = 1
-deltaTime = 0.05
---I swear to go this fucking book 
---it has quaternions using w as the first component
---fix that shit
 
 
+physicsIterations = 8
+restitution = 0.4
+deltaTime = 0.05/physicsIterations
+gravity = vec(0,-10,0)
 
-
-
+local function deRepetitize(tableIN)
+local newTable = {}
+for i, value in pairs(tableIN) do
+    local included = true
+    for j, oldValue in pairs(newTable) do
+        if value == oldValue then
+            included = false        
+        end
+    end
+    log(value,newTable)
+    if included then
+        table.insert(newTable,value)
+    end
+end
+return newTable
+end
 
 
 
@@ -44,7 +58,82 @@ local function inertiaTensorToWorld(object,rotMatrix)
     local newTensor = rotMat*object.inertiaTensor:inverted()*rotMat:transposed()
 
     return newTensor
+end
+
+local function calculateContactAxis(axisX)
+local axisY = (axisX+vec(0.01,0.1,1)):normalized()
+local axisZ = axisX:crossed(axisY)
+axisY = axisX:crossed(axisZ)
+return {xAxis = axisX:normalized(), yAxis = axisY:normalize(), zAxis = axisZ:normalize()}
+end
+
+local function createBasisMatrix(x,y,z)
+local newMat = matrices.mat3()
+newMat[1] = vec(x.x,y.x,z.x)
+newMat[2] = vec(x.y,y.y,z.y)
+newMat[3] = vec(x.z,y.z,z.z)
+return newMat
 end    
+
+
+
+function createContactMatrix(xAxis)
+
+local yAxis = vec(0,0,0)
+local zAxis = vec(0,0,0)
+
+
+    if (math.abs(xAxis.x) > math.abs(xAxis.y)) then
+
+        local s = 1/math.sqrt(xAxis.z*xAxis.z + xAxis.x*xAxis.x);
+
+        
+        yAxis.x = xAxis.z*s;
+        yAxis.y = 0;
+        yAxis.z = -xAxis.x*s;
+
+
+        zAxis.x = xAxis.y*yAxis.x;
+        zAxis.y = xAxis.z*yAxis.x - xAxis.x*yAxis.z;
+        zAxis.z = -xAxis.y*yAxis.x;
+    
+    else
+
+        local s = 1/math.sqrt(xAxis.z*xAxis.z + xAxis.y*xAxis.y)
+
+
+        yAxis.x = 0;
+        yAxis.y = -xAxis.z*s;
+        yAxis.z = xAxis.y*s;
+
+        zAxis.x = xAxis.y*yAxis.z -
+            xAxis.z*yAxis.y;
+        zAxis.y = -xAxis.x*yAxis.z;
+        zAxis.z = xAxis.x*yAxis.y;
+    
+
+end
+local retMat = matrices.mat3()
+retMat[1] = vec(xAxis.x,yAxis.x,zAxis.x)
+retMat[2] = vec(xAxis.y,yAxis.y,zAxis.y)
+retMat[3] = vec(xAxis.z,yAxis.z,zAxis.z)
+return retMat
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 --use this for rotation integration
 models.model:setPos(vec(0,1000000,0))
 --quaternion2 does not have the first value
@@ -78,15 +167,15 @@ local function findBoundingSphere(vertices)
     return {center=center/16,radius=highestLength/16}
 end
 
-
+local colPlaneRadius = 10
 function events.entity_init()
-
-    local mass = 1 
+    colPlanes = {{colPlaneNormal = vec(0,1,0),colPlaneOffset = player:getPos().y},{colPlaneNormal = vec(1,0,0),colPlaneOffset = -colPlaneRadius+player:getPos().x},{colPlaneNormal = vec(0,0,1),colPlaneOffset = -colPlaneRadius+player:getPos().z},{colPlaneNormal = vec(-1,0,0),colPlaneOffset = -colPlaneRadius-player:getPos().x},{colPlaneNormal = vec(0,0,-1),colPlaneOffset = -colPlaneRadius-player:getPos().z}}
+    local mass = 1
     local cuboidInertiaTensor = matrices.mat3()
     cuboidInertiaTensor[1] = vec((1/12)*mass*(cuboidHeight*cuboidHeight+cuboidDepth*cuboidDepth),0,0)
     cuboidInertiaTensor[2] = vec(0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidDepth*cuboidDepth),0)
     cuboidInertiaTensor[3] = vec(0,0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidHeight*cuboidHeight))
-
+    cuboidInertiaTensor = cuboidInertiaTensor * 2
 
 
 
@@ -99,20 +188,20 @@ end
 
 
 
-local dampening = 0.992
-local angleDampening = 0.99
+local dampening = 0.96
+local angleDampening = 0.97
 local angle = math.rad(0)
 local angle2 = 199
 local angle3 = 247
 local quaternion = quaternions.new(math.cos(angle/2),1*math.sin(angle/2),0*math.sin(angle/2),0*math.sin(angle/2))
 local rotation = vec(math.rad(angle2),math.rad(angle3),0)
 function events.tick()
-    
+for j=1, physicsIterations do
 
 for i, object in pairs(PhysicsObjects) do
      --quaternion = rotateQuaternionByVector(quaternion,rotation)
-
-     sphereMarker(object.position+object.boundingSphere.center, object.boundingSphere.radius, 1)
+    addForce(i,gravity*object.mass)
+ --   sphereMarker(object.position+object.boundingSphere.center, object.boundingSphere.radius, 1)
 
     local tempmat = object.rotation:getMatrix()
 
@@ -126,20 +215,21 @@ for i, object in pairs(PhysicsObjects) do
    -- log(objectWorldInertiaTensor)
     local angularAcceleration = object.torqueAccumulator*objectWorldInertiaTensor:inverted()
    -- log(object.angularVelocity,object.rotation.x,object.rotation.y,object.rotation.z,object.rotation.w)
-
-drawVector(object.angularVelocity*3,nil,object.position)
+    local acceleration = 1/object.mass*object.forceAccumulator
+--drawVector(object.angularVelocity*3,nil,object.position)
     object.angularVelocity = object.angularVelocity + angularAcceleration*deltaTime
  --s   log(objectWorldInertiaTensor)
-
-
+    object.velocity = object.velocity+acceleration*deltaTime
 
     object.position = object.position + object.velocity*deltaTime
     object.rotation = addScaledQuaternion(object.rotation,object.angularVelocity,-deltaTime)
 
-    object.velocity = object.velocity*dampening
-    object.angularVelocity = object.angularVelocity*angleDampening
-
-
+    object.velocity = object.velocity*dampening^(1/physicsIterations)
+    object.angularVelocity = object.angularVelocity*angleDampening^(1/physicsIterations)
+    for i, plane in pairs(colPlanes) do
+    runCollision(object,objectWorldInertiaTensor,plane.colPlaneOffset,plane.colPlaneNormal)
+    end
+--[[
     local posToConvert = vec(1,0,0)
     posToConvert = transformLocalToWorld(posToConvert,object.rotMat, object.position)
     particles:newParticle("minecraft:end_rod", posToConvert)
@@ -157,21 +247,21 @@ drawVector(object.angularVelocity*3,nil,object.position)
     particles:newParticle("minecraft:end_rod", posToConvert)
     local posToConvert = vec(0,0,-1)
     posToConvert = transformLocalToWorld(posToConvert,object.rotMat, object.position)
-    particles:newParticle("minecraft:end_rod", posToConvert)
+    particles:newParticle("minecraft:end_rod", posToConvert)]]
 --    log(posToConvert)]]
 
 --log(object.rotMat,"asasdhdjjkadjhdakjadsjjdkasdjkdaadsjhkdasjdasjhdjjashjkdasjdasj")
 for i, vertex in pairs(object.copy:getAllVertices()["model.texture"]) do
     vertex:setPos(object.defVerts[i]*object.rotMat+object.position*16)
 
-   particles:newParticle("minecraft:bubble", vertex:getPos()/16)
+  -- particles:newParticle("minecraft:bubble", vertex:getPos()/16)
 end
 
 
 object.torqueAccumulator = vec(0,0,0)
 object.forceAccumulator = vec(0,0,0)
 end
-
+end
 --log(avatar:getNBT().models.chld[1].chld[1].mesh_data)
 end
 
@@ -180,11 +270,14 @@ end
 
 function pings.addForceAtBodyPoint(objectIndex,force,point)
     local newPoint = point-PhysicsObjects[objectIndex].position--transformWorldToLocal(point,PhysicsObjects[objectIndex].rotMat,PhysicsObjects[objectIndex].position)
-    PhysicsObjects[objectIndex].torqueAccumulator = PhysicsObjects[objectIndex].torqueAccumulator+newPoint:crossed(force)
-    PhysicsObjects[objectIndex].forceAccumulator = PhysicsObjects[objectIndex].forceAccumulator+force
+
+    PhysicsObjects[objectIndex].torqueAccumulator = PhysicsObjects[objectIndex].torqueAccumulator+newPoint:crossed(force)*6
+    PhysicsObjects[objectIndex].forceAccumulator = PhysicsObjects[objectIndex].forceAccumulator+force*-1
 end
 
-
+function addForce(objectIndex,force)
+    PhysicsObjects[objectIndex].forceAccumulator = PhysicsObjects[objectIndex].forceAccumulator+force
+end
 
 
 
@@ -214,6 +307,7 @@ dimensions = {width = cuboidWidth, height = cuboidHeight, depth = cuboidDepth},
 angularVelocity = angularVelocity,
 copy = copy,
 defVerts = defVerts,
+defVertsButNoRepetition = deRepetitize(defVerts),
 inertiaTensor = inertiaTensor,
 forceAccumulator = vec(0,0,0),
 torqueAccumulator = vec(0,0,0),
@@ -240,6 +334,90 @@ function getTransformMatrix(object)
 end
 
 
+function runCollision(self,WIT,colPlaneOffset,colPlaneNormal) 
+local tempVerts = {}
+local highestPenetration = 0
+local highestPenetrationIndex = 0
+local contactPoints = {}
+
+for i, vertex in pairs(self.defVertsButNoRepetition) do
+        tempVerts[i] = (vertex/16)*self.rotMat+self.position
+end
+
+    for i, vertex in pairs(tempVerts) do
+        local vertexDistance = vertex:dot(colPlaneNormal)
+
+if vertexDistance <= colPlaneOffset then
+    local penetration = colPlaneOffset - vertexDistance
+    local contactNormal = colPlaneNormal
+local contactPoint = colPlaneNormal*(vertexDistance-colPlaneOffset) + vertex
+
+
+
+
+contactPoints[i]= {contactPoint=contactPoint,contactNormal=contactNormal,penetration=penetration,vertexDistance=vertexDistance}
+if penetration>highestPenetration then
+highestPenetration = penetration
+
+highestPenetrationIndex = i
+end    
+end
+end
+if highestPenetrationIndex ~= 0 then
+    --log(highestPenetrationIndex,contactPoints)
+self.position = self.position - colPlaneNormal*(contactPoints[highestPenetrationIndex].vertexDistance-colPlaneOffset)
+end
+local impulses = {}
+
+local contactAmount = 0
+for i, contactPoint in pairs(contactPoints) do
+contactAmount = contactAmount + 1
+end
+local velocityAccumulator = vec(0,0,0)
+local angularVelocityAccumulator = vec(0,0,0)
+for i, contactPoint in pairs(contactPoints) do
+
+    local basisMatrix = createContactMatrix(contactPoint.contactNormal):transposed()
+    local impulseContact = vec(0,0,0)
+
+    local relativeContact = contactPoint.contactPoint-self.position
+
+    local deltaVelWorld = (WIT*(relativeContact:crossed(contactPoint.contactNormal))):crossed(relativeContact)
+    local deltaVelocity = deltaVelWorld:dot(contactPoint.contactNormal)+1/self.mass
+
+    local velocity = self.angularVelocity:crossed(relativeContact)*-1+self.velocity
+    local contactVelocity = basisMatrix:transposed()*velocity
+    local desiredDeltaVelocity = -contactVelocity.x * (1+restitution)
+
+    impulseContact.x = desiredDeltaVelocity/deltaVelocity
+    
+    local impulse = basisMatrix * impulseContact
+   -- drawVector(impulse,nil,contactPoint.contactPoint)
+    local velocityChange = impulse
+
+    local impulsiveTorque = impulse:crossed(relativeContact)*-1
+    local angularVelocityChange = impulsiveTorque
+
+    velocityAccumulator = velocityAccumulator + velocityChange
+    angularVelocityAccumulator = angularVelocityAccumulator - angularVelocityChange
+
+
+
+
+
+
+
+
+
+end
+self.velocity = self.velocity + velocityAccumulator * 1/self.mass
+self.angularVelocity = self.angularVelocity +WIT*angularVelocityAccumulator
+
+
+
+end
+
+
 function events.mouse_press(button, action, modifier)
     if button == 0 and action == 1 then
         for i, object in pairs(PhysicsObjects) do
@@ -250,7 +428,7 @@ function events.mouse_press(button, action, modifier)
             if hitPos~= nil then
                 local worldHitPos = transformLocalToWorld(hitPos,object.rotMat,object.position)
                 particles:newParticle("minecraft:sonic_boom", worldHitPos)
-                pings.addForceAtBodyPoint(i,player:getLookDir()*-3000,worldHitPos)
+                pings.addForceAtBodyPoint(i,player:getLookDir()*-300*physicsIterations,worldHitPos)
                 
      --   drawVector(player:getLookDir()*10,nil,nil,10)
             end
@@ -266,7 +444,7 @@ function drawVector(vector,particle,at,steps)
     local step = vector:normalized()*(vector:length()/steps)
     local cur = vec(0,0,0)
     for i = 1, steps do
-        particles:newParticle("minecraft:crit", at+cur)
+        particles:newParticle("minecraft:bubble", at+cur)
         cur:add(step)
     end
 end
@@ -312,15 +490,19 @@ end
 
 function events.key_press(key, action, modifier)
     if key == 75 and action == 1 then 
-        local mass = 1 
-        local cuboidInertiaTensor = matrices.mat3()
-        cuboidInertiaTensor[1] = vec((1/12)*mass*(cuboidHeight*cuboidHeight+cuboidDepth*cuboidDepth),0,0)
-        cuboidInertiaTensor[2] = vec(0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidDepth*cuboidDepth),0)
-        cuboidInertiaTensor[3] = vec(0,0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidHeight*cuboidHeight))
-    
-    
-    
-    
-        createRigidBody(mass,player:getPos()+vec(0,3,0),vec(0.0,0,0),quaternions.new(0,0,0,1),vec(0,0,math.rad(0)),models.model.cuboid,cuboidInertiaTensor)
+        pings.create(player:getPos())
     end    
+end
+
+function pings.create(pos)
+    local mass = 1 
+    local cuboidInertiaTensor = matrices.mat3()
+    cuboidInertiaTensor[1] = vec((1/12)*mass*(cuboidHeight*cuboidHeight+cuboidDepth*cuboidDepth),0,0)
+    cuboidInertiaTensor[2] = vec(0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidDepth*cuboidDepth),0)
+    cuboidInertiaTensor[3] = vec(0,0,(1/12)*mass*(cuboidWidth*cuboidWidth+cuboidHeight*cuboidHeight))
+
+
+
+
+    createRigidBody(mass,pos+vec(0,0,0),vec(0.0,0,0),quaternions.new(0,0,0,1),vec(0,0,math.rad(0)),models.model.cuboid,cuboidInertiaTensor)
 end
